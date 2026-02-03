@@ -1,108 +1,98 @@
 
-
-# Motorcycle Dealership Management App
+# Step 3: Add Substatus Editing
 
 ## Overview
-An internal B2B web application to manage the complete sales process for motorcycle deals. The app replaces Zapier-based boards and is designed for automation via n8n webhooks.
+Add inline substatus editing to deal cards on the Kanban board. Users can click a dropdown on any deal card to change its substatus within the current phase.
 
 ---
 
-## Core Features
+## Components to Create/Modify
 
-### 1. Authentication & Role-Based Access
-- Login system with 4 roles: **Sales**, **Administration**, **Workshop**, **Manager**
-- Role-based navigation showing relevant features per user type
-- Basic role separation (full permissions enforcement deferred to v2)
+### 1. Create SubstatusSelector Component
+**File:** `src/components/deals/SubstatusSelector.tsx`
 
-### 2. Dashboard (Combined Overview)
-- **Smart Queue widget** — Top priority: shows items needing immediate attention
-- **Pipeline summary** — Deal counts per phase with quick stats
-- **Today's activities** — Test rides, deliveries, overdue payments
-- **Recent activity feed** — Latest updates across all deals
+A reusable dropdown component that:
+- Accepts the current deal's phase and substatus
+- Shows only valid substatuses for that phase (using `SUBSTATUS_OPTIONS`)
+- Calls `updateDealSubstatus` from DealContext on change
+- Shows success toast notification after update
+- Includes validation to prevent invalid substatus selection
 
-### 3. Deal Management (Kanban Board)
-- **6 Kanban columns** representing phases:
-  1. Lead & Verkoop (Lead & Sales)
-  2. Betaling (Payment)
-  3. Logistiek (Logistics)
-  4. Werkplaats (Workshop)
-  5. Aflevering (Delivery)
-  6. Nazorg (After-care)
-- **Drag-and-drop** to change deal phase
-- **Deal cards** showing customer name, motorcycle, total price, and substatus badge
-- **Click to open** deal detail page
+### 2. Modify DealCard Component  
+**File:** `src/components/deals/DealCard.tsx`
 
-### 4. Deal Detail Page
-- Full deal information with customer details
-- **Substatus dropdown** — Change the exact step within a phase
-- **Payment tracking** — Deposit and remaining amount status
-- **Key dates** — Test ride date, delivery date
-- **Activity log** — Timeline of all changes and events
-- **Quick actions** — Mark deposit paid, schedule delivery, etc.
+Replace the static Badge with the new SubstatusSelector:
+- Import and use `SubstatusSelector` component
+- Add `onClick` stop propagation on the selector area (so clicking dropdown doesn't navigate to deal detail)
+- Pass `dealId`, `phase`, and current `substatus` as props
 
-### 5. Smart Queue (Primary Work Tool)
-- Automatically generated task list based on 8 rules:
-  - Offer follow-up (no activity for 2 days after quote sent)
-  - Deposit overdue
-  - Test ride today
-  - Delivery upcoming (within 7 days)
-  - Unit in stock but not started
-  - Unit ready but delivery not planned
-  - No activity for 3 days
-  - First follow-up (7 days after delivery)
-- **Priority badges** — Urgent vs Normal items
-- **Due dates** and countdown indicators
-- Items auto-remove when conditions are resolved
+### 3. Update Exports
+**File:** `src/components/deals/index.ts`
 
-### 6. Customer Management (CRM Lite)
-- Customer list with search and filters
-- Customer detail page with contact info
-- Link to all associated deals
-- Contact preferences (WhatsApp opt-in, preferred channel)
-
-### 7. Activity Logging
-- Automatic logging of all phase/substatus changes
-- Manual activity notes option
-- Event emission hooks (ready for n8n integration)
+Export the new `SubstatusSelector` component.
 
 ---
 
-## Technical Approach
+## Interaction Flow
 
-### Mock Data Architecture
-- TypeScript interfaces matching the data models (Deal, Customer, Payment, SmartQueueItem, ActivityLog)
-- Mock data service with realistic Dutch motorcycle dealership data
-- State management that simulates database behavior
-- Easy migration path to Supabase when ready
-
-### Component Structure
-- Reuse existing UI components (Cards, Badges, Tables, Forms)
-- Kanban board with drag-and-drop (using a lightweight library)
-- Hybrid design: data tables + visual cards
-
-### n8n-Ready Events
-- Event emitter pattern for phase/substatus changes
-- Webhook payload structure defined (ready for future integration)
+```text
+User clicks substatus dropdown
+         |
+         v
+   Dropdown opens showing
+   phase-specific options
+         |
+         v
+   User selects new substatus
+         |
+         v
+  Validation: Is substatus valid
+  for current phase?
+     |           |
+    Yes          No
+     |           |
+     v           v
+  Call       Show error
+  updateDealSubstatus()   toast
+     |
+     v
+  Context updates deal,
+  logs activity, emits event
+     |
+     v
+  Show success toast:
+  "Status bijgewerkt"
+```
 
 ---
 
-## Screen Summary
+## Validation Logic
 
-| Screen | Purpose |
-|--------|---------|
-| `/` | Dashboard with Smart Queue + Pipeline Overview |
-| `/deals` | Kanban board view of all deals |
-| `/deals/:id` | Deal detail page |
-| `/queue` | Full Smart Queue list |
-| `/customers` | Customer list and management |
-| `/customers/:id` | Customer detail with linked deals |
-| `/auth` | Login page |
+The SubstatusSelector will validate selections by:
+1. Checking if selected substatus ID exists in `SUBSTATUS_OPTIONS[phase]`
+2. If invalid (edge case), show error toast and reject the change
+3. This ensures data integrity even if phase changes during dropdown interaction
 
 ---
 
-## What's NOT Included (Per Knowledge File)
-- No customer-facing portal
-- No advanced reporting in v1
-- No financial accounting
-- No email/WhatsApp sending (handled by n8n)
+## Technical Details
 
+### SubstatusSelector Props
+```typescript
+interface SubstatusSelectorProps {
+  dealId: string;
+  phase: DealPhase;
+  currentSubstatus: DealSubstatus;
+}
+```
+
+### Key Implementation Notes
+- Use existing `Select`, `SelectTrigger`, `SelectContent`, `SelectItem` from `@/components/ui/select`
+- Use `toast` from `sonner` for notifications
+- Stop event propagation on the Select wrapper to prevent card click navigation
+- Style the trigger to look like a badge (compact, colored background)
+- Dropdown has `z-50` and solid `bg-popover` to prevent transparency issues
+
+### Toast Messages (Dutch)
+- Success: "Status bijgewerkt naar [new status label]"
+- Error: "Ongeldige status voor deze fase"
