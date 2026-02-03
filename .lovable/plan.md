@@ -1,98 +1,186 @@
 
-# Step 3: Add Substatus Editing
+# Step 6: Emit Events for External Automation
 
 ## Overview
-Add inline substatus editing to deal cards on the Kanban board. Users can click a dropdown on any deal card to change its substatus within the current phase.
+Enhance the event system to be production-ready for n8n webhook integration. The app will emit structured events on key deal lifecycle changes, but will NOT implement email/WhatsApp logic internally (that's n8n's responsibility).
 
 ---
 
-## Components to Create/Modify
+## Current State
 
-### 1. Create SubstatusSelector Component
-**File:** `src/components/deals/SubstatusSelector.tsx`
+The codebase already has:
+- A basic `emitEvent` function that logs to console
+- Events stored in React state via `setEvents`
+- `DealEvent` type with 4 event types
+- Events emitted for: phase change, substatus change, deposit paid
 
-A reusable dropdown component that:
-- Accepts the current deal's phase and substatus
-- Shows only valid substatuses for that phase (using `SUBSTATUS_OPTIONS`)
-- Calls `updateDealSubstatus` from DealContext on change
-- Shows success toast notification after update
-- Includes validation to prevent invalid substatus selection
-
-### 2. Modify DealCard Component  
-**File:** `src/components/deals/DealCard.tsx`
-
-Replace the static Badge with the new SubstatusSelector:
-- Import and use `SubstatusSelector` component
-- Add `onClick` stop propagation on the selector area (so clicking dropdown doesn't navigate to deal detail)
-- Pass `dealId`, `phase`, and current `substatus` as props
-
-### 3. Update Exports
-**File:** `src/components/deals/index.ts`
-
-Export the new `SubstatusSelector` component.
+**What's Missing:**
+- No actual webhook dispatch mechanism
+- Missing event for "fully paid" payment update
+- No delivery date change event
+- No deal creation event emission
+- No webhook URL configuration
+- Event payloads lack full context (customer info, motorcycle details)
 
 ---
 
-## Interaction Flow
+## Implementation Plan
 
-```text
-User clicks substatus dropdown
-         |
-         v
-   Dropdown opens showing
-   phase-specific options
-         |
-         v
-   User selects new substatus
-         |
-         v
-  Validation: Is substatus valid
-  for current phase?
-     |           |
-    Yes          No
-     |           |
-     v           v
-  Call       Show error
-  updateDealSubstatus()   toast
-     |
-     v
-  Context updates deal,
-  logs activity, emits event
-     |
-     v
-  Show success toast:
-  "Status bijgewerkt"
+### 1. Create Event Service
+**File:** `src/lib/eventService.ts`
+
+A dedicated service for event handling:
+
+```typescript
+interface EventServiceConfig {
+  webhookUrl?: string;
+  enabled: boolean;
+}
+
+interface EnrichedDealEvent {
+  type: DealEventType;
+  dealId: string;
+  dealNumber: string;
+  timestamp: string; // ISO format
+  payload: {
+    // Event-specific data
+  };
+  context: {
+    customer: { id, name, email, phone, preferredChannel };
+    motorcycle: { brand, model, year, color };
+    payment: { totalPrice, depositPaid, fullyPaid };
+    phase: string;
+    substatus: string;
+  };
+}
+```
+
+Functions:
+- `configureWebhook(url: string)` - Set webhook URL
+- `emitDealEvent(event: EnrichedDealEvent)` - Log + dispatch to webhook
+- `getEventHistory()` - Return logged events for debugging
+
+### 2. Expand Event Types
+**File:** `src/types/index.ts`
+
+Add new event types:
+```typescript
+export type DealEventType = 
+  | 'phase_changed'
+  | 'substatus_changed'
+  | 'deposit_received'      // Renamed for clarity
+  | 'fully_paid'            // NEW
+  | 'delivery_scheduled'    // NEW
+  | 'deal_created';
+```
+
+### 3. Update DealContext
+**File:** `src/contexts/DealContext.tsx`
+
+Replace inline `emitEvent` calls with the event service:
+- Add event emission to `markFullyPaid` function
+- Add event emission to `setDeliveryDate` function
+- Enrich all events with full deal context
+- Use ISO timestamp format for n8n compatibility
+
+### 4. Webhook Payload Structure
+Each event sent to n8n will have this structure:
+
+```json
+{
+  "type": "phase_changed",
+  "dealId": "deal-001",
+  "dealNumber": "2024-MR-0001",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "payload": {
+    "oldPhase": "lead_verkoop",
+    "newPhase": "betaling",
+    "oldSubstatus": "deal_gesloten",
+    "newSubstatus": "aanbetaling_openstaand"
+  },
+  "context": {
+    "customer": {
+      "id": "cust-001",
+      "name": "Jan de Vries",
+      "email": "jan@example.nl",
+      "phone": "+31612345678",
+      "preferredChannel": "whatsapp"
+    },
+    "motorcycle": {
+      "brand": "BMW",
+      "model": "R 1250 GS",
+      "year": 2024,
+      "color": "Black"
+    },
+    "payment": {
+      "totalPrice": 21500,
+      "depositAmount": 2000,
+      "depositPaid": true,
+      "remainingAmount": 19500,
+      "fullyPaid": false
+    },
+    "currentPhase": "betaling",
+    "currentSubstatus": "aanbetaling_openstaand"
+  }
+}
 ```
 
 ---
 
-## Validation Logic
+## Event Triggers Summary
 
-The SubstatusSelector will validate selections by:
-1. Checking if selected substatus ID exists in `SUBSTATUS_OPTIONS[phase]`
-2. If invalid (edge case), show error toast and reject the change
-3. This ensures data integrity even if phase changes during dropdown interaction
+| Action | Event Type | Key Payload Data |
+|--------|-----------|------------------|
+| Drag deal to new column | `phase_changed` | oldPhase, newPhase, newSubstatus |
+| Change substatus dropdown | `substatus_changed` | oldSubstatus, newSubstatus |
+| Mark deposit paid | `deposit_received` | amount, depositPaidAt |
+| Mark fully paid | `fully_paid` | totalAmount, fullyPaidAt |
+| Set delivery date | `delivery_scheduled` | deliveryDate, previousDate |
+| Create new deal | `deal_created` | Full deal data |
 
 ---
 
 ## Technical Details
 
-### SubstatusSelector Props
+### Webhook Dispatch (Mock for now)
 ```typescript
-interface SubstatusSelectorProps {
-  dealId: string;
-  phase: DealPhase;
-  currentSubstatus: DealSubstatus;
+async function dispatchToWebhook(event: EnrichedDealEvent): Promise<void> {
+  const config = getConfig();
+  
+  if (!config.enabled || !config.webhookUrl) {
+    console.log('[n8n Event - Not Dispatched]', event);
+    return;
+  }
+
+  try {
+    await fetch(config.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      mode: 'no-cors', // For cross-origin webhooks
+      body: JSON.stringify(event),
+    });
+    console.log('[n8n Event - Dispatched]', event.type, event.dealId);
+  } catch (error) {
+    console.error('[n8n Event - Failed]', error);
+    // Don't throw - webhook failures shouldn't block the UI
+  }
 }
 ```
 
-### Key Implementation Notes
-- Use existing `Select`, `SelectTrigger`, `SelectContent`, `SelectItem` from `@/components/ui/select`
-- Use `toast` from `sonner` for notifications
-- Stop event propagation on the Select wrapper to prevent card click navigation
-- Style the trigger to look like a badge (compact, colored background)
-- Dropdown has `z-50` and solid `bg-popover` to prevent transparency issues
+### Files Changed
 
-### Toast Messages (Dutch)
-- Success: "Status bijgewerkt naar [new status label]"
-- Error: "Ongeldige status voor deze fase"
+| File | Change |
+|------|--------|
+| `src/lib/eventService.ts` | NEW - Event dispatch service |
+| `src/types/index.ts` | Update DealEventType, add EnrichedDealEvent |
+| `src/contexts/DealContext.tsx` | Use event service, add missing events |
+
+---
+
+## What This Does NOT Include
+Per requirements:
+- No email sending logic
+- No WhatsApp sending logic
+- No SMS logic
+
+These are handled by n8n workflows that consume the webhook events.
