@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
 import { Deal, DealPhase, DealSubstatus, ActivityLog, DealEvent } from '@/types';
 import { mockDeals } from '@/data/mockData';
+import { emitDealEvent, EnrichedDealEvent, getEventHistory } from '@/lib/eventService';
 
 interface DealContextType {
   deals: Deal[];
@@ -12,15 +13,10 @@ interface DealContextType {
   markFullyPaid: (dealId: string) => void;
   setDeliveryDate: (dealId: string, date: Date) => void;
   events: DealEvent[];
+  enrichedEvents: EnrichedDealEvent[];
 }
 
 const DealContext = createContext<DealContextType | undefined>(undefined);
-
-// Event emitter for n8n integration
-const emitEvent = (event: DealEvent) => {
-  console.log('[n8n Event]', event);
-  // In production, this would send to n8n webhook
-};
 
 export function DealProvider({ children }: { children: ReactNode }) {
   const [deals, setDeals] = useState<Deal[]>(mockDeals);
@@ -43,16 +39,17 @@ export function DealProvider({ children }: { children: ReactNode }) {
         createdBy: 'Systeem',
       };
 
+      // Legacy event for backward compatibility
       const event: DealEvent = {
         type: 'phase_changed',
         dealId,
         timestamp: new Date(),
         payload: { oldPhase: deal.phase, newPhase, newSubstatus },
       };
-      emitEvent(event);
       setEvents(prev => [...prev, event]);
 
-      return {
+      // Create updated deal for enriched event
+      const updatedDeal: Deal = {
         ...deal,
         phase: newPhase,
         substatus: newSubstatus,
@@ -60,6 +57,16 @@ export function DealProvider({ children }: { children: ReactNode }) {
         lastActivityAt: new Date(),
         activities: [activity, ...deal.activities],
       };
+
+      // Emit enriched event for n8n
+      emitDealEvent('phase_changed', updatedDeal, {
+        oldPhase: deal.phase,
+        newPhase,
+        oldSubstatus: deal.substatus,
+        newSubstatus,
+      });
+
+      return updatedDeal;
     }));
   }, []);
 
@@ -76,22 +83,31 @@ export function DealProvider({ children }: { children: ReactNode }) {
         createdBy: 'Systeem',
       };
 
+      // Legacy event for backward compatibility
       const event: DealEvent = {
         type: 'substatus_changed',
         dealId,
         timestamp: new Date(),
         payload: { oldSubstatus: deal.substatus, newSubstatus },
       };
-      emitEvent(event);
       setEvents(prev => [...prev, event]);
 
-      return {
+      // Create updated deal for enriched event
+      const updatedDeal: Deal = {
         ...deal,
         substatus: newSubstatus,
         updatedAt: new Date(),
         lastActivityAt: new Date(),
         activities: [activity, ...deal.activities],
       };
+
+      // Emit enriched event for n8n
+      emitDealEvent('substatus_changed', updatedDeal, {
+        oldSubstatus: deal.substatus,
+        newSubstatus,
+      });
+
+      return updatedDeal;
     }));
   }, []);
 
@@ -119,6 +135,8 @@ export function DealProvider({ children }: { children: ReactNode }) {
     setDeals(prev => prev.map(deal => {
       if (deal.id !== dealId) return deal;
 
+      const depositPaidAt = new Date();
+      
       const activity: ActivityLog = {
         id: `act-${Date.now()}`,
         dealId,
@@ -128,27 +146,36 @@ export function DealProvider({ children }: { children: ReactNode }) {
         createdBy: 'Systeem',
       };
 
+      // Legacy event for backward compatibility
       const event: DealEvent = {
         type: 'payment_received',
         dealId,
         timestamp: new Date(),
         payload: { type: 'deposit', amount: deal.payment.depositAmount },
       };
-      emitEvent(event);
       setEvents(prev => [...prev, event]);
 
-      return {
+      // Create updated deal for enriched event
+      const updatedDeal: Deal = {
         ...deal,
         payment: {
           ...deal.payment,
           depositPaid: true,
-          depositPaidAt: new Date(),
+          depositPaidAt,
           remainingAmount: deal.payment.totalPrice - deal.payment.depositAmount,
         },
         updatedAt: new Date(),
         lastActivityAt: new Date(),
         activities: [activity, ...deal.activities],
       };
+
+      // Emit enriched event for n8n
+      emitDealEvent('deposit_received', updatedDeal, {
+        amount: deal.payment.depositAmount,
+        depositPaidAt: depositPaidAt.toISOString(),
+      });
+
+      return updatedDeal;
     }));
   }, []);
 
@@ -156,6 +183,8 @@ export function DealProvider({ children }: { children: ReactNode }) {
     setDeals(prev => prev.map(deal => {
       if (deal.id !== dealId) return deal;
 
+      const fullyPaidAt = new Date();
+      
       const activity: ActivityLog = {
         id: `act-${Date.now()}`,
         dealId,
@@ -165,18 +194,27 @@ export function DealProvider({ children }: { children: ReactNode }) {
         createdBy: 'Systeem',
       };
 
-      return {
+      // Create updated deal for enriched event
+      const updatedDeal: Deal = {
         ...deal,
         payment: {
           ...deal.payment,
           fullyPaid: true,
-          fullyPaidAt: new Date(),
+          fullyPaidAt,
           remainingAmount: 0,
         },
         updatedAt: new Date(),
         lastActivityAt: new Date(),
         activities: [activity, ...deal.activities],
       };
+
+      // Emit enriched event for n8n
+      emitDealEvent('fully_paid', updatedDeal, {
+        totalAmount: deal.payment.totalPrice,
+        fullyPaidAt: fullyPaidAt.toISOString(),
+      });
+
+      return updatedDeal;
     }));
   }, []);
 
@@ -184,6 +222,8 @@ export function DealProvider({ children }: { children: ReactNode }) {
     setDeals(prev => prev.map(deal => {
       if (deal.id !== dealId) return deal;
 
+      const previousDate = deal.deliveryDate;
+      
       const activity: ActivityLog = {
         id: `act-${Date.now()}`,
         dealId,
@@ -193,13 +233,22 @@ export function DealProvider({ children }: { children: ReactNode }) {
         createdBy: 'Systeem',
       };
 
-      return {
+      // Create updated deal for enriched event
+      const updatedDeal: Deal = {
         ...deal,
         deliveryDate: date,
         updatedAt: new Date(),
         lastActivityAt: new Date(),
         activities: [activity, ...deal.activities],
       };
+
+      // Emit enriched event for n8n
+      emitDealEvent('delivery_scheduled', updatedDeal, {
+        deliveryDate: date.toISOString(),
+        previousDate: previousDate?.toISOString() ?? null,
+      });
+
+      return updatedDeal;
     }));
   }, []);
 
@@ -215,6 +264,7 @@ export function DealProvider({ children }: { children: ReactNode }) {
         markFullyPaid,
         setDeliveryDate,
         events,
+        enrichedEvents: getEventHistory(),
       }}
     >
       {children}

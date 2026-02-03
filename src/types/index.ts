@@ -226,6 +226,8 @@ export interface SmartQueueItem {
 }
 
 // Event Types (for n8n integration)
+// Note: EnrichedDealEvent and DealEventType are defined in src/lib/eventService.ts
+// This legacy type is kept for backward compatibility with existing code
 export interface DealEvent {
   type: 'phase_changed' | 'substatus_changed' | 'payment_received' | 'deal_created';
   dealId: string;
