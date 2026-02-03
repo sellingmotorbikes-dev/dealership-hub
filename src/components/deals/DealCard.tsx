@@ -1,11 +1,12 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { Deal, DealPhase, SUBSTATUS_OPTIONS } from '@/types';
+import { Deal } from '@/types';
 import { useNavigate } from 'react-router-dom';
 import { Draggable } from '@hello-pangea/dnd';
 import { Euro, Calendar, User } from 'lucide-react';
 import { format } from 'date-fns';
 import { nl } from 'date-fns/locale';
+import { SubstatusSelector } from './SubstatusSelector';
 
 interface DealCardProps {
   deal: Deal;
@@ -14,10 +15,6 @@ interface DealCardProps {
 
 export function DealCard({ deal, index }: DealCardProps) {
   const navigate = useNavigate();
-
-  const substatusLabel = SUBSTATUS_OPTIONS[deal.phase]?.find(
-    (s) => s.id === deal.substatus
-  )?.label || deal.substatus;
 
   return (
     <Draggable draggableId={deal.id} index={index}>
@@ -45,10 +42,14 @@ export function DealCard({ deal, index }: DealCardProps) {
               {deal.motorcycle.brand} {deal.motorcycle.model}
             </p>
 
-            {/* Substatus Badge */}
-            <Badge variant="secondary" className="mb-3 text-xs">
-              {substatusLabel}
-            </Badge>
+            {/* Substatus Selector */}
+            <div className="mb-3">
+              <SubstatusSelector
+                dealId={deal.id}
+                phase={deal.phase}
+                currentSubstatus={deal.substatus}
+              />
+            </div>
 
             {/* Footer info */}
             <div className="flex items-center justify-between text-xs text-muted-foreground">
