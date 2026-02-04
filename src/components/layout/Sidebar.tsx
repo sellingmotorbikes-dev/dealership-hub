@@ -27,6 +27,7 @@ const navItems = [
   { to: '/deals', icon: Kanban, label: 'Deals', roles: ['sales', 'administration', 'manager'] },
   { to: '/queue', icon: ListTodo, label: 'Smart Queue', roles: ['sales', 'administration', 'workshop', 'manager'] },
   { to: '/customers', icon: Users, label: 'Klanten', roles: ['sales', 'administration', 'manager'] },
+  { to: '/settings', icon: Settings, label: 'Instellingen', roles: ['manager'] },
 ];
 
 const roleLabels: Record<UserRole, string> = {
