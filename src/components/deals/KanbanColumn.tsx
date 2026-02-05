@@ -19,7 +19,7 @@ const phaseColors: Record<DealPhase, string> = {
 
 export function KanbanColumn({ phase, deals }: KanbanColumnProps) {
   return (
-    <div className="flex flex-col min-w-[280px] max-w-[320px]">
+    <div className="flex flex-col flex-1 min-w-[260px]">
       {/* Column Header */}
       <div className={cn(
         "rounded-t-lg border border-b-0 bg-muted/50 p-3 border-t-4",
