@@ -1,178 +1,197 @@
 
-# Setting Up n8n Workflows for Deal Events
+# Plan: Werkplaats Kanban Toegang + Persoonlijke Fase-filter
 
-## Overview
-This guide covers two parts:
-1. Creating n8n workflows that respond to your deal events
-2. Configuring your app to send events to n8n
+## Overzicht
+
+Dit plan implementeert twee aanpassingen:
+1. **Optie A**: Werkplaats profiel krijgt toegang tot de volledige Kanban
+2. **Fase-filter**: Alle profielen kunnen zelf kiezen welke fases ze willen zien
 
 ---
 
-## Part 1: Create n8n Workflows
+## Wijziging 1: Werkplaats Kanban Toegang
 
-You'll need to create these workflows in your n8n interface. Here are step-by-step instructions for each:
+### Bestand: `src/components/layout/Sidebar.tsx`
 
-### Workflow 1: Deal Phase Changed Notification
+Eenvoudige wijziging - voeg `workshop` toe aan de roles array:
 
-**Purpose**: Notify team when a deal moves to a new phase
-
-**Steps in n8n**:
-1. Add a **Webhook** trigger node
-   - Set HTTP Method to `POST`
-   - Copy the webhook URL (you'll need this later)
-
-2. Add an **IF** node to filter by event type
-   - Condition: `{{ $json.type }}` equals `phase_changed`
-
-3. Add a **Switch** node to route by new phase
-   - Route based on `{{ $json.payload.newPhase }}`
-   - Create branches for: `betaling`, `logistiek`, `werkplaats`, `aflevering`, `nazorg`
-
-4. Add notification nodes per branch (Email, Slack, or other):
-   - **betaling**: Notify administration team
-   - **werkplaats**: Notify workshop team
-   - **aflevering**: Notify delivery coordinator
-
-**Example email template**:
-```
-Subject: Deal {{ $json.dealNumber }} moved to {{ $json.payload.newPhase }}
-
-Customer: {{ $json.context.customer.name }}
-Motorcycle: {{ $json.context.motorcycle.brand }} {{ $json.context.motorcycle.model }}
-Previous Phase: {{ $json.payload.oldPhase }}
-New Phase: {{ $json.payload.newPhase }}
+```typescript
+// Regel 27: toevoegen van 'workshop'
+{ to: '/deals', icon: Kanban, label: 'Deals', roles: ['sales', 'administration', 'workshop', 'manager'] },
 ```
 
 ---
 
-### Workflow 2: Payment Confirmation
+## Wijziging 2: Persoonlijke Fase-filter
 
-**Purpose**: Send confirmation to customer when payments are received
+### Nieuwe Component: `src/components/deals/PhaseFilter.tsx`
 
-**Steps in n8n**:
-1. Add a **Webhook** trigger node (POST)
+Een filter-popover waarmee medewerkers kunnen kiezen welke fases zichtbaar zijn:
 
-2. Add an **IF** node
-   - Condition: `{{ $json.type }}` equals `deposit_received` OR `fully_paid`
-
-3. Add a **Switch** node for payment type
-   - Branch 1: `deposit_received`
-   - Branch 2: `fully_paid`
-
-4. For each branch, add communication based on customer preference:
-   - Check `{{ $json.context.customer.preferredChannel }}`
-   - If `whatsapp`: Use WhatsApp Business node
-   - If `email`: Use Email node
-
-**Deposit received template**:
-```
-Beste {{ $json.context.customer.name }},
-
-Bedankt voor uw aanbetaling van €{{ $json.payload.amount }}.
-
-Uw bestelling:
-{{ $json.context.motorcycle.brand }} {{ $json.context.motorcycle.model }} ({{ $json.context.motorcycle.year }})
-
-Resterend bedrag: €{{ $json.context.payment.remainingAmount }}
-
-Met vriendelijke groet,
-[Your Company]
+```text
++------------------------------------------+
+|  [Filter icon] Fases (4/6)               |
++------------------------------------------+
+         |
+         v
++------------------------------------------+
+|  Toon kolommen:                          |
+|                                          |
+|  [x] Lead & Verkoop                      |
+|  [x] Betaling                            |
+|  [ ] Logistiek                           |
+|  [x] Werkplaats                          |
+|  [x] Aflevering                          |
+|  [ ] Nazorg                              |
+|                                          |
+|  [Alles selecteren]  [Reset]             |
++------------------------------------------+
 ```
 
-**Fully paid template**:
-```
-Beste {{ $json.context.customer.name }},
+### Functionaliteit
 
-Wij hebben uw volledige betaling van €{{ $json.payload.totalAmount }} ontvangen.
+- Checkbox per fase om te tonen/verbergen
+- "Alles selecteren" knop om alle fases te tonen
+- "Reset" knop om terug te gaan naar standaard
+- Filter-keuzes worden opgeslagen in localStorage per gebruiker
+- Badge toont "4/6" om aan te geven hoeveel fases zichtbaar zijn
 
-Uw {{ $json.context.motorcycle.brand }} {{ $json.context.motorcycle.model }} wordt nu klaargemaakt voor levering.
+### Opslag in localStorage
 
-Met vriendelijke groet,
-[Your Company]
+```text
+Key: kanban_phase_filter_{userId}
+Value: ["lead_verkoop", "betaling", "werkplaats", "aflevering"]
 ```
 
 ---
 
-### Workflow 3: Delivery Reminder
+## Te Wijzigen Bestanden
 
-**Purpose**: Send reminder to customer when delivery is scheduled
+| Bestand | Wijziging |
+|---------|-----------|
+| `src/components/layout/Sidebar.tsx` | Workshop toegang toevoegen |
+| `src/components/deals/PhaseFilter.tsx` | NIEUW - Filter component |
+| `src/components/deals/KanbanBoard.tsx` | Filter state + gefilterde weergave |
+| `src/pages/Deals.tsx` | Filter component in header plaatsen |
+| `src/components/deals/index.ts` | Export PhaseFilter |
 
-**Steps in n8n**:
-1. Add a **Webhook** trigger node (POST)
+---
 
-2. Add an **IF** node
-   - Condition: `{{ $json.type }}` equals `delivery_scheduled`
+## Technische Details
 
-3. Add a **Date & Time** node to format the delivery date
-   - Input: `{{ $json.payload.deliveryDate }}`
-   - Format: Dutch locale
+### KanbanBoard.tsx Wijzigingen
 
-4. Add Email/WhatsApp node based on `preferredChannel`
+```typescript
+interface KanbanBoardProps {
+  visiblePhases: DealPhase[];
+}
 
-**Template**:
+export function KanbanBoard({ visiblePhases }: KanbanBoardProps) {
+  // Filter DEAL_PHASES op basis van visiblePhases
+  const filteredPhases = DEAL_PHASES.filter(phase => 
+    visiblePhases.includes(phase.id)
+  );
+
+  return (
+    <DragDropContext onDragEnd={handleDragEnd}>
+      <div className="flex gap-4 overflow-x-auto pb-4">
+        {filteredPhases.map((phase) => (
+          <KanbanColumn
+            key={phase.id}
+            phase={phase}
+            deals={dealsByPhase[phase.id]}
+          />
+        ))}
+      </div>
+    </DragDropContext>
+  );
+}
 ```
-Beste {{ $json.context.customer.name }},
 
-Uw aflevering is gepland!
+### Deals.tsx Wijzigingen
 
-Datum: [formatted date]
-Motor: {{ $json.context.motorcycle.brand }} {{ $json.context.motorcycle.model }}
+```typescript
+export default function DealsPage() {
+  const { user } = useAuth();
+  const [visiblePhases, setVisiblePhases] = useState<DealPhase[]>([]);
 
-Wij kijken ernaar uit u te verwelkomen.
+  // Laad filter uit localStorage bij mount
+  useEffect(() => {
+    const storageKey = `kanban_phase_filter_${user?.id}`;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      setVisiblePhases(JSON.parse(saved));
+    } else {
+      // Default: alle fases
+      setVisiblePhases(DEAL_PHASES.map(p => p.id));
+    }
+  }, [user?.id]);
 
-Met vriendelijke groet,
-[Your Company]
+  // Sla filter op bij wijziging
+  const handleFilterChange = (phases: DealPhase[]) => {
+    setVisiblePhases(phases);
+    localStorage.setItem(
+      `kanban_phase_filter_${user?.id}`, 
+      JSON.stringify(phases)
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Deals</h1>
+          <p className="text-muted-foreground">...</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <PhaseFilter 
+            selected={visiblePhases}
+            onChange={handleFilterChange}
+          />
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            Nieuwe Deal
+          </Button>
+        </div>
+      </div>
+
+      <KanbanBoard visiblePhases={visiblePhases} />
+    </div>
+  );
+}
 ```
 
----
+### PhaseFilter.tsx Component
 
-### Workflow 4: Combined Event Router (Recommended)
-
-Instead of separate workflows, you can create ONE workflow that handles all events:
-
-1. **Webhook** trigger (POST) - Single entry point
-
-2. **Switch** node on `{{ $json.type }}`
-   - Branches: `phase_changed`, `substatus_changed`, `deposit_received`, `fully_paid`, `delivery_scheduled`, `deal_created`
-
-3. Each branch leads to its specific logic
-
-**Advantage**: Single webhook URL to configure in your app
+Gebruikt bestaande UI componenten:
+- `Popover` + `PopoverTrigger` + `PopoverContent` voor de dropdown
+- `Checkbox` voor de fase-selecties
+- `Button` voor "Alles selecteren" en "Reset"
+- `Badge` om aantal geselecteerde fases te tonen
 
 ---
 
-## Part 2: Configure Your App
+## UX Overwegingen
 
-Once you have your webhook URL from n8n, you need to add it to your app.
+### Drag & Drop met Verborgen Kolommen
 
-### Option A: Add a Settings Page (Recommended)
+Wanneer een deal wordt gesleept naar een verborgen fase (bijv. via de detail pagina), blijft de deal zichtbaar in het systeem maar niet in de Kanban. Dit is verwacht gedrag - de medewerker heeft bewust gekozen die fase niet te zien.
 
-I can create a settings page where you can enter and save your webhook URL. This would:
-- Store the URL in localStorage
-- Call `configureWebhook(url)` on app load
-- Allow you to test the connection
+### Standaard Filter per Rol (Optioneel)
 
-### Option B: Hardcode for Now (Quick Start)
+Later kan dit uitgebreid worden met standaard filters per rol:
+- Verkoop: Lead & Verkoop, Betaling, Aflevering, Nazorg
+- Werkplaats: Logistiek, Werkplaats, Aflevering
+- Administratie: Alle fases
 
-For testing, you can add the webhook URL directly in your code.
-
----
-
-## Quick Start Steps
-
-1. **In n8n**: Create a new workflow with a Webhook trigger node
-2. **In n8n**: Copy the Production webhook URL
-3. **In n8n**: Make sure "Available in MCP" is enabled in workflow settings
-4. **In your app**: We'll add a way to configure this URL
-5. **Test**: Change a deal's phase and watch for events in n8n
+Dit is echter optioneel - de huidige implementatie laat iedereen zelf kiezen.
 
 ---
 
-## Next Steps After Approval
+## Samenvatting
 
-If you approve this plan, I will:
-1. Create a simple Settings page with webhook URL configuration
-2. Add a "Test Event" button to verify the connection
-3. Persist the webhook URL in localStorage
-
-This way you can easily connect your app to n8n without code changes.
+Dit plan geeft medewerkers flexibiliteit om hun Kanban-weergave te personaliseren, terwijl de volledige functionaliteit behouden blijft. De filter is:
+- Persoonlijk (per gebruiker opgeslagen)
+- Persistent (blijft na refresh)
+- Intuïtief (checkboxes met duidelijke labels)
+- Non-destructief (verborgen fases blijven in het systeem)
