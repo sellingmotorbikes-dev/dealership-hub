@@ -48,7 +48,7 @@ export function KanbanBoard({ visiblePhases }: KanbanBoardProps) {
 
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      <div className="flex gap-4 overflow-x-auto pb-4 w-full">
         {filteredPhases.map((phase) => (
           <KanbanColumn
             key={phase.id}
