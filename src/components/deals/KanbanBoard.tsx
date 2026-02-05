@@ -1,10 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { DragDropContext, DropResult } from '@hello-pangea/dnd';
 import { useDeals } from '@/contexts/DealContext';
 import { DEAL_PHASES, DealPhase, SUBSTATUS_OPTIONS, DealSubstatus } from '@/types';
 import { KanbanColumn } from './KanbanColumn';
 
-export function KanbanBoard() {
+interface KanbanBoardProps {
+  visiblePhases: DealPhase[];
+}
+
+export function KanbanBoard({ visiblePhases }: KanbanBoardProps) {
   const { deals, updateDealPhase } = useDeals();
 
   const dealsByPhase = useMemo(() => {
@@ -24,6 +28,10 @@ export function KanbanBoard() {
     return grouped;
   }, [deals]);
 
+  const filteredPhases = useMemo(() => {
+    return DEAL_PHASES.filter(phase => visiblePhases.includes(phase.id));
+  }, [visiblePhases]);
+
   const handleDragEnd = (result: DropResult) => {
     const { destination, source, draggableId } = result;
 
@@ -41,7 +49,7 @@ export function KanbanBoard() {
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
       <div className="flex gap-4 overflow-x-auto pb-4">
-        {DEAL_PHASES.map((phase) => (
+        {filteredPhases.map((phase) => (
           <KanbanColumn
             key={phase.id}
             phase={phase}

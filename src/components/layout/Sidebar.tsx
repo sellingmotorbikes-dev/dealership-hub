@@ -24,7 +24,7 @@ import { UserRole } from '@/types';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['sales', 'administration', 'workshop', 'manager'] },
-  { to: '/deals', icon: Kanban, label: 'Deals', roles: ['sales', 'administration', 'manager'] },
+  { to: '/deals', icon: Kanban, label: 'Deals', roles: ['sales', 'administration', 'workshop', 'manager'] },
   { to: '/queue', icon: ListTodo, label: 'Smart Queue', roles: ['sales', 'administration', 'workshop', 'manager'] },
   { to: '/customers', icon: Users, label: 'Klanten', roles: ['sales', 'administration', 'manager'] },
   { to: '/settings', icon: Settings, label: 'Instellingen', roles: ['manager'] },
